@@ -1,0 +1,9 @@
+DATA_PATH = ""
+
+
+
+MODEL_PATH = ""
+
+
+
+EMBEDDING_MODEL_PATH = ""
