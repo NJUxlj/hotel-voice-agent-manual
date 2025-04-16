@@ -8,6 +8,14 @@ from zhipuai import ZhipuAI
 from serpapi import GoogleSearch  
 from datetime import datetime  
 
+import tempfile  
+import shutil  
+import logging  
+
+# 设置日志  
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')  
+logger = logging.getLogger("RAGAgent")  
+
 
 # LangChain imports  
 from langchain_community.vectorstores.chroma import Chroma  
@@ -15,7 +23,8 @@ from langchain_core.documents import Document
 from langchain_core.output_parsers import StrOutputParser  
 from langchain_core.runnables import RunnablePassthrough  
 from langchain_core.prompts import ChatPromptTemplate  
-# from langchain_community.llms import ChatZhipuAI, ZhipuAIEmbeddings  
+from langchain_community.chat_models.zhipuai import ChatZhipuAI
+from langchain_community.embeddings import ZhipuAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter  
 
 
@@ -183,23 +192,17 @@ class RAGAgent(BaseAgent):
     
     def _get_embedding(self, text: str) -> List[float]:  
         """使用智谱AI获取文本的嵌入向量"""  
-        # try:  
-        #     # 调用智谱AI的嵌入接口  
-        #     response = client.embeddings.create(  
-        #         model="embedding-2",  
-        #         input=text  
-        #     )  
-        #     return response.data[0].embedding  
-        # except Exception as e:  
-        #     print(f"获取 embedding-2 嵌入向量失败: {e}")  
-        #     # 返回一个随机向量作为后备方案  
-        #     return [np.random.random() for _ in range(1024)]  
-        
+         
         # 使用ZhipuEmbedding类获取嵌入向量
-        result = self.embedding_model.get_single_embedding(text).tolist()
-        print("使用智谱embedding转为向量后的结果是：", result[0])
-        print("embedding.length = ", len(result[0]))
-        return result[0]
+        try:
+            result = self.embedding_model.get_single_embedding(text).tolist()
+        except Exception as e:
+            print(f"获取 embedding-2 嵌入向量失败: {e}, 返回一个随机向量作为后备方案")
+            result = [np.random.random() for _ in range(1024)]  
+            
+        print("使用智谱embedding转为向量后的结果是：", result)
+        print("embedding.length = ", len(result))
+        return result
     
     def run(self, query: str, context: Dict[str, Any] = None) -> Dict[str, Any]:  
         """执行RAG检索和回答生成"""  
@@ -246,6 +249,204 @@ class RAGAgent(BaseAgent):
                 "answer": f"抱歉，我在处理您的请求时遇到了问题: {str(e)}",  
                 "query": query  
             }  
+            
+            
+    def run_use_langchain(self, query: str, context: Dict[str, Any] = None) -> Dict[str, Any]:  
+        """  
+        使用LangChain最新标准组件执行RAG流程  
+        
+        参数:  
+            query: 用户查询  
+            context: 可选的上下文信息  
+            
+        返回:  
+            包含回答和元数据的字典  
+        """  
+        try:  
+            # 初始化LangChain组件（如果尚未初始化）  
+            if not self.langchain_initialized:  
+                self._init_langchain()  
+            
+            # 执行查询  
+            start_time = datetime.now()  
+            
+            # 使用LCEL将检索器和LLM链接在一起执行查询  
+            response = self.rag_chain.invoke({"query": query})  
+            retrieved_docs = self.retriever.get_relevant_documents(query)  
+            
+            end_time = datetime.now()  
+            
+            # 提取回答和源文档  
+            answer = response  
+            
+            # 格式化源文档  
+            sources = []  
+            for doc in retrieved_docs:  
+                sources.append({  
+                    "content": doc.page_content,  
+                    "metadata": doc.metadata  
+                })  
+            
+            return {  
+                "agent": self.name + " (LangChain)",  
+                "answer": answer,  
+                "sources": sources,  
+                "query": query,  
+                "execution_time": (end_time - start_time).total_seconds()  
+            }  
+        except Exception as e:  
+            logger.exception("LangChain RAG执行失败")  
+            return {  
+                "agent": self.name + " (LangChain)",  
+                "answer": f"抱歉，我在处理您的请求时遇到了问题: {str(e)}",  
+                "query": query  
+            }  
+    
+    def _init_langchain(self):  
+        """初始化LangChain组件（使用最新的LCEL架构）"""  
+        try:  
+            logger.info("初始化LangChain组件...")  
+            
+            # 1. 设置智谱AI的嵌入模型  
+            embeddings = ZhipuAIEmbeddings(  
+                model="embedding-2",  
+                zhipuai_api_key=self.api_key  
+            )  
+            
+            # 2. 设置智谱AI的语言模型  
+            self.zhipu_llm = ChatZhipuAI(  
+                model="glm-4",  # 注意这里是model而不是model_name  
+                temperature=0.7,  
+                zhipuai_api_key=self.api_key  
+            )  
+            
+            # 3. 准备文档数据  
+            documents = []  
+            for text in self.vector_db.db["documents"]:  
+                # 创建LangChain文档对象  
+                doc = Document(  
+                    page_content=text,  
+                    metadata={"source": "knowledge_base"}  
+                )  
+                documents.append(doc)  
+            
+            # 4. 创建Chroma向量存储  
+            # 如果持久化目录已存在，先删除它以避免冲突  
+            if os.path.exists(self.persist_directory):  
+                shutil.rmtree(self.persist_directory)  
+            
+            # 使用文档和嵌入模型创建向量存储  
+            logger.info(f"创建Chroma向量数据库，共有{len(documents)}个文档...")  
+            
+            # 拆分长文档（如果需要）  
+            text_splitter = RecursiveCharacterTextSplitter(  
+                chunk_size=500,  
+                chunk_overlap=50  
+            )  
+            
+            split_docs = text_splitter.split_documents(documents)  
+            
+            self.chroma_db = Chroma.from_documents(  
+                documents=split_docs,  
+                embedding=embeddings,  
+                persist_directory=self.persist_directory  
+            )  
+            
+            # 创建检索器  
+            self.retriever = self.chroma_db.as_retriever(  
+                search_type="similarity",  
+                search_kwargs={"k": 3}  
+            )  
+            
+            # 5. 设置RAG提示模板 (使用ChatPromptTemplate)  
+            template = """你是一个专业的上海旅游顾问，请根据以下上下文信息回答用户的问题。  
+
+                    上下文信息:  
+                    {context}  
+
+                    用户问题: {query}  
+
+                    请用简洁专业的语言回答上述问题，如果上下文信息中没有相关内容，请明确说明你没有足够的信息，不要编造答案。  
+                    """  
+            
+            prompt = ChatPromptTemplate.from_template(template)  
+            
+            # 6. 使用LCEL创建RAG链 (新方式)  
+            # 定义一个函数，将检索器的结果格式化为上下文字符串  
+            def format_docs(docs):  
+                return "\n\n".join(doc.page_content for doc in docs)  
+            
+            # 使用LCEL构建RAG链  
+            self.rag_chain = (  
+                {"context": self.retriever | format_docs, "query": RunnablePassthrough()}  
+                | prompt  
+                | self.zhipu_llm  
+                | StrOutputParser()  
+            )  
+            
+            self.langchain_initialized = True  
+            logger.info("LangChain组件初始化完成")  
+            
+        except Exception as e:  
+            logger.exception("初始化LangChain组件失败")  
+            raise  
+    
+    def add_documents_langchain(self, texts: List[str]):  
+        """  
+        添加新文档到LangChain的Chroma数据库  
+        
+        参数:  
+            texts: 要添加的文本列表  
+        """  
+        if not self.langchain_initialized:  
+            self._init_langchain()  
+        
+        # 创建文档对象  
+        documents = []  
+        for i, text in enumerate(texts):  
+            doc = Document(  
+                page_content=text,  
+                metadata={"source": f"additional_content_{i}", "added_at": datetime.now().isoformat()}  
+            )  
+            documents.append(doc)  
+        
+        # 拆分长文档  
+        text_splitter = RecursiveCharacterTextSplitter(  
+            chunk_size=500,  
+            chunk_overlap=50  
+        )  
+        split_docs = text_splitter.split_documents(documents)  
+        
+        # 添加到Chroma  
+        self.chroma_db.add_documents(split_docs)  
+        logger.info(f"已添加{len(documents)}个新文档到Chroma数据库")  
+        
+        # 同时添加到原始向量数据库以保持同步  
+        for text in texts:  
+            embedding = self._get_embedding(text)  
+            self.vector_db.add_document(text, embedding)  
+    
+    def compare_results(self, query: str) -> Dict[str, Any]:  
+        """  
+        比较原始实现和LangChain实现的结果  
+        
+        参数:  
+            query: 用户查询  
+            
+        返回:  
+            包含两种实现结果的字典  
+        """  
+        # 执行原始实现  
+        original_result = self.run(query)  
+        
+        # 执行LangChain实现  
+        langchain_result = self.run_use_langchain(query)  
+        
+        return {  
+            "query": query,  
+            "original": original_result,  
+            "langchain": langchain_result  
+        }  
 
 
 

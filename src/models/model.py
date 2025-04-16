@@ -111,12 +111,12 @@ class ZhipuEmbedding:
             
             # 提取嵌入向量  
             embedding = response.data[0].embedding  # List[float]
-            return np.array([embedding])  
+            return np.array(embedding)  
             
         except Exception as e:  
             print(f"获取嵌入向量失败: {str(e)}")  
             # 返回零向量作为后备  
-            return np.array([[0.0] * self.embedding_dimension])  
+            return np.array([0.0] * self.embedding_dimension)  
     
     def get_dimension(self) -> int:  
         """  
