@@ -36,20 +36,24 @@ class FAQRAG:
         self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')  
         self.top_k = top_k  
         
+        self.embedding_type = embedding_type
+        
+        self.embedding_model_name = embedding_model_name
+        
         print(f"初始化嵌入模型: {embedding_model_name}")  
         self.embedding_model = SentenceTransformer(embedding_model_name)  
         self.embedding_model.to(self.device)  
         self.embedding_dim = self.embedding_model.get_sentence_embedding_dimension()  
         
         # 创建FAISS索引  
-        if index_type == 'cosine':  
+        if index_type == 'cosine':     # 余弦相似度 = 向量A·向量B / (||A|| * ||B||, 当向量归一化后(长度为1)，余弦相似度 = 向量A·向量B
             self.index = faiss.IndexFlatIP(self.embedding_dim)  # 内积，需要归一化向量  
             self.normalize = True  
         elif index_type == 'ip':  
             self.index = faiss.IndexFlatIP(self.embedding_dim)  # 内积  
             self.normalize = False  
         else:  # 'l2'  
-            self.index = faiss.IndexFlatL2(self.embedding_dim)  # 欧氏距离  
+            self.index = faiss.IndexFlatL2(self.embedding_dim)  # 欧氏距离   √Σ(Ai - Bi)² 
             self.normalize = False  
             
         # 存储数据  
