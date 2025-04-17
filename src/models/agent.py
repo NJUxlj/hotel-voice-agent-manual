@@ -2,7 +2,7 @@
 import os  
 import json  
 import numpy as np  
-from typing import Dict, List, Any, Optional, Tuple  
+from typing import Dict, List, Any, Optional, Tuple, Literal
 import zhipuai  
 from zhipuai import ZhipuAI  
 # from serpapi.google_search import GoogleSearch 
@@ -115,7 +115,7 @@ class SimpleVectorDB:
             
             qa_pairs = self.docx_generator.get_all_qa_pairs()
             
-            chunks = [f"问题: {qa[0]}\n答案: {qa[1]}" for qa in qa_pairs]
+            chunks = [f"问题: {qa['question']}\n答案: {qa['answer']}" for qa in qa_pairs]
             
             # 将每个片段添加到向量数据库
             for chunk in chunks:
@@ -170,8 +170,8 @@ class SimpleVectorDB:
     
     def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:  
         """计算两个向量之间的余弦相似度"""  
-        vec1 = np.array(vec1)  
-        vec2 = np.array(vec2)  
+        vec1 = np.array(vec1).reshape(-1,)
+        vec2 = np.array(vec2).reshape(-1,)  
         return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2)) 
     
 
@@ -192,14 +192,15 @@ class BaseAgent:
 class RAGAgent(BaseAgent):  
     """负责检索增强生成的执行智能体"""  
     
-    def __init__(self, name: str = "RAG智能体"):  
+    def __init__(self, name: str = "RAG智能体", file_type:Literal["pdf","docx"]="pdf"):  
         super().__init__(name)  
+        self.file_type = file_type
         self.vector_db = SimpleVectorDB()  
         self.embedding_model = ZhipuEmbedding(api_key=ZHIPU_API_KEY)
         self._init_data()  
         
         # 用于LangChain的API密钥设置  
-        self.api_key = os.environ.get("ZHIPU_API_KEY", "YOUR_ZHIPU_API_KEY")  
+        self.api_key = ZHIPU_API_KEY
         
         # 存储LangChain临时数据的目录  
         self.persist_directory = os.path.join(os.getcwd(), "chroma_db")  
@@ -218,51 +219,54 @@ class RAGAgent(BaseAgent):
     
     def _populate_knowledge_base(self):  
         """向知识库中添加上海旅游知识"""  
-        # 检查是否存在上海旅游文档文件  
-        if not os.path.exists(SHANGHAI_TOURISM_DOCX):  
-            # 如果不存在,创建一些示例数据  
-            sample_data = [
-                "上海，简称\"沪\"，是中国的一个直辖市，国家中心城市，超大城市，也是国际经济、金融、贸易、航运、科技创新中心。",  
-                "上海有许多著名的旅游景点，包括外滩、东方明珠、上海迪士尼、豫园、南京路、城隍庙等。",  
-                "外滩是上海最著名的景点之一，沿黄浦江而建，有52幢风格各异的历史建筑，被称为\"万国建筑博览群\"。",  
-                "东方明珠电视塔是上海的标志性建筑，高468米，是亚洲第一、世界第三高塔。",  
-                "上海迪士尼度假区于2016年6月16日正式开园，是中国内地首个迪士尼主题乐园。",  
-                "豫园建于明代嘉靖年间，是江南古典园林的代表作品之一，有\"城市山林\"之称。",  
-                "南京路是中国第一条商业街，也是上海开埠后最早建立的一条商业街，被誉为\"中华商业第一街\"。",  
-                "上海的四季分明，春秋两季较短，冬夏较长。最佳旅游时间为3-5月和9-11月。",  
-                "上海菜，也称沪菜，是中国八大菜系之一，以本帮菜为代表，特点是口味偏甜。",  
-                "上海交通发达，有地铁、公交、出租车等多种交通方式，地铁是游览上海的最佳选择之一。",  
-                "上海的著名美食包括小笼包、生煎包、蟹壳黄、红烧肉、八宝饭等。",  
-                "上海话属于吴语的一种，是上海地区的主要语言，但普通话在上海也很普及。",  
-                "上海博物馆是中国首批国家一级博物馆，收藏了大量珍贵文物。",  
-                "上海科技馆是中国规模最大的科技馆之一，适合亲子游览。",  
-                "上海野生动物园位于浦东新区，是中国规模最大的野生动物园之一。",  
-                "上海环球金融中心是上海的地标性建筑之一，观光厅可俯瞰整个上海。",  
-                "七宝古镇是上海著名的历史文化古镇，有\"沪上方浜\"之称。",  
-                "朱家角古镇是上海的四大历史文化名镇之一，以水乡风貌著称。",  
-                "田子坊是上海的创意产业集聚区，由一组石库门里弄改造而成。",  
-                "新天地是上海的时尚休闲街区，由旧时上海的石库门建筑改造而成。"  
-            ]  
-            
-            with open(SHANGHAI_TOURISM_DOCX, 'w', encoding='utf-8') as f:  
-                f.write('\n'.join(sample_data))  
-            
-            # 将样本数据加入向量数据库  
-            for doc in sample_data:  
-                embedding = self._get_embedding(doc)  
-                self.vector_db.add_document(doc, embedding)  
-        else:  
-            # 从文件加载数据  
-            with open(SHANGHAI_TOURISM_DOCX, 'r', encoding='utf-8') as f:  
-                lines = f.readlines()  
+        if self.file_type=="pdf":
+            if not os.path.exists(SHANGHAI_TOURISM_PDF):
+                raise ValueError("SHANGHAI_TOURISM_PDF not found")  
+            else:
+                self.vector_db._convert_pdf_to_db(SHANGHAI_TOURISM_PDF)
                 
-            # 检查向量数据库是否为空  
-            if not self.vector_db.db["documents"]:  
-                for line in lines:  
-                    line = line.strip()  
-                    if line:  
-                        embedding = self._get_embedding(line)  
-                        self.vector_db.add_document(line, embedding)  
+        elif self.file_type=="docx":
+            # 检查是否存在上海旅游文档文件  
+            if not os.path.exists(SHANGHAI_TOURISM_DOCX):  
+                print("上海旅游docx文档不存在, 我们只能创建一些示例数据 ！！！ ")
+                sample_data = [
+                    "上海，简称\"沪\"，是中国的一个直辖市，国家中心城市，超大城市，也是国际经济、金融、贸易、航运、科技创新中心。",  
+                    "上海有许多著名的旅游景点，包括外滩、东方明珠、上海迪士尼、豫园、南京路、城隍庙等。",  
+                    "外滩是上海最著名的景点之一，沿黄浦江而建，有52幢风格各异的历史建筑，被称为\"万国建筑博览群\"。",  
+                    "东方明珠电视塔是上海的标志性建筑，高468米，是亚洲第一、世界第三高塔。",  
+                    "上海迪士尼度假区于2016年6月16日正式开园，是中国内地首个迪士尼主题乐园。",  
+                    "豫园建于明代嘉靖年间，是江南古典园林的代表作品之一，有\"城市山林\"之称。",  
+                    "南京路是中国第一条商业街，也是上海开埠后最早建立的一条商业街，被誉为\"中华商业第一街\"。",  
+                    "上海的四季分明，春秋两季较短，冬夏较长。最佳旅游时间为3-5月和9-11月。",  
+                    "上海菜，也称沪菜，是中国八大菜系之一，以本帮菜为代表，特点是口味偏甜。",  
+                    "上海交通发达，有地铁、公交、出租车等多种交通方式，地铁是游览上海的最佳选择之一。",  
+                    "上海的著名美食包括小笼包、生煎包、蟹壳黄、红烧肉、八宝饭等。",  
+                    "上海话属于吴语的一种，是上海地区的主要语言，但普通话在上海也很普及。",  
+                    "上海博物馆是中国首批国家一级博物馆，收藏了大量珍贵文物。",  
+                    "上海科技馆是中国规模最大的科技馆之一，适合亲子游览。",  
+                    "上海野生动物园位于浦东新区，是中国规模最大的野生动物园之一。",  
+                    "上海环球金融中心是上海的地标性建筑之一，观光厅可俯瞰整个上海。",  
+                    "七宝古镇是上海著名的历史文化古镇，有\"沪上方浜\"之称。",  
+                    "朱家角古镇是上海的四大历史文化名镇之一，以水乡风貌著称。",  
+                    "田子坊是上海的创意产业集聚区，由一组石库门里弄改造而成。",  
+                    "新天地是上海的时尚休闲街区，由旧时上海的石库门建筑改造而成。"  
+                ]  
+                
+                with open(SHANGHAI_TOURISM_DOCX, 'w', encoding='utf-8') as f:  
+                    f.write('\n'.join(sample_data))  
+                
+                # 将样本数据加入向量数据库  
+                for doc in sample_data:  
+                    embedding = self._get_embedding(doc)  
+                    self.vector_db.add_document(doc, embedding)  
+            else:  
+                # 从docx文件加载数据  
+                self.vector_db._convert_docx_to_db(SHANGHAI_TOURISM_DOCX)
+                
+        else:
+            raise ValueError("file_type must be 'pdf' or 'docx'")
+        
+        print("上海旅游知识库初始化完成 ~~~")
     
     def _get_embedding(self, text: str) -> List[float]:  
         """使用智谱AI获取文本的嵌入向量"""  
@@ -274,7 +278,7 @@ class RAGAgent(BaseAgent):
             print(f"获取 embedding-2 嵌入向量失败: {e}, 返回一个随机向量作为后备方案")
             result = [np.random.random() for _ in range(1024)]  
             
-        print("使用智谱embedding转为向量后的结果是：", result)
+        # print("使用智谱embedding转为向量后的结果是：", result)
         print("embedding.length = ", len(result))
         return result
     
@@ -291,10 +295,22 @@ class RAGAgent(BaseAgent):
             context_docs = [doc for doc, score in search_results]  
             context_text = "\n".join(context_docs)  
             
+            supplement_text = []
+            # 构建外部补充信息
+            if context!=None and len(context.keys())>0:
+                for key, value in context.items():
+                    supplement_text.append(f"{key}: {value}")
+                
+            supplement_text = "\n".join(supplement_text)
+
+            
             # 构建提示  
             prompt = f"""你是一个专业的上海旅游顾问，请根据以下信息回答用户的问题。  
                     参考信息:  
                     {context_text}  
+                    
+                    外部补充信息:
+                    {supplement_text}
 
                     用户问题: {query}  
 
@@ -302,7 +318,7 @@ class RAGAgent(BaseAgent):
             
             # 调用智谱AI生成回答  
             response = client.chat.completions.create(  
-                model="glm-4-fast",  
+                model="glm-4-flash",  
                 messages=[  
                     {"role": "user", "content": prompt}  
                 ]  
@@ -369,7 +385,8 @@ class RAGAgent(BaseAgent):
                 "execution_time": (end_time - start_time).total_seconds()  
             }  
         except Exception as e:  
-            logger.exception("LangChain RAG执行失败")  
+            logger.exception("LangChain RAG执行失败") 
+            print("具体错误是：", e) 
             return {  
                 "agent": self.name + " (LangChain)",  
                 "answer": f"抱歉，我在处理您的请求时遇到了问题: {str(e)}",  
@@ -384,14 +401,14 @@ class RAGAgent(BaseAgent):
             # 1. 设置智谱AI的嵌入模型  
             embeddings = ZhipuAIEmbeddings(  
                 model="embedding-2",  
-                zhipuai_api_key=self.api_key  
+                api_key=self.api_key  
             )  
             
             # 2. 设置智谱AI的语言模型  
             self.zhipu_llm = ChatZhipuAI(  
-                model="glm-4",  # 注意这里是model而不是model_name  
+                model="glm-4-flash",  # 注意这里是model而不是model_name  
                 temperature=0.7,  
-                zhipuai_api_key=self.api_key  
+                api_key=self.api_key  
             )  
             
             # 3. 准备文档数据  
@@ -418,7 +435,7 @@ class RAGAgent(BaseAgent):
                 chunk_overlap=50  
             )  
             
-            split_docs = text_splitter.split_documents(documents)  
+            split_docs = text_splitter.split_documents(documents)[:60]  # 为了不超过智谱AI的64条的最大限制
             
             self.chroma_db = Chroma.from_documents(  
                 documents=split_docs,  
@@ -452,7 +469,9 @@ class RAGAgent(BaseAgent):
             
             # 使用LCEL构建RAG链  
             self.rag_chain = (  
-                {"context": self.retriever | format_docs, "query": RunnablePassthrough()}  
+                              # 传入模板参数
+                {"query": RunnablePassthrough()}  
+                | {"context": lambda x: format_docs(self.retriever.get_relevant_documents(x["query"])), "query": lambda x: x["query"]}
                 | prompt  
                 | self.zhipu_llm  
                 | StrOutputParser()  
@@ -575,7 +594,7 @@ class SearchAgent(BaseAgent):
                 
                 # 调用智谱AI生成回答  
                 response = client.chat.completions.create(  
-                    model="glm-4-fast",  
+                    model="glm-4-flash",  
                     messages=[  
                         {"role": "user", "content": prompt}  
                     ]  
@@ -636,7 +655,7 @@ class CoordinatorAgent(BaseAgent):
         
         # 调用智谱AI做决策  
         response = client.chat.completions.create(  
-            model="glm-4-fast",  
+            model="glm-4-flash",  
             messages=[  
                 {"role": "user", "content": prompt}  
             ]  
@@ -681,7 +700,7 @@ class CoordinatorAgent(BaseAgent):
             
             # 调用智谱AI生成最终回答  
             response = client.chat.completions.create(  
-                model="glm-4",  
+                model="glm-4-flash",  
                 messages=[  
                     {"role": "user", "content": prompt}  
                 ]  
@@ -759,6 +778,16 @@ if __name__ == "__main__":
     # rag_agent._get_embedding("哈哈哈")
     
     
-    vector_db = SimpleVectorDB()
+    # vector_db = SimpleVectorDB()
     
-    vector_db._convert_pdf_to_db(SHANGHAI_TOURISM_PDF)
+    # vector_db._convert_pdf_to_db(SHANGHAI_TOURISM_PDF)
+    
+    # vector_db._convert_docx_to_db(SHANGHAI_TOURISM_DOCX)
+    
+    
+    
+    rag_agent = RAGAgent()
+    
+    # result = rag_agent.run(query = "上海海昌海洋公园门票购买以后是否可以退票退款？")
+    result = rag_agent.compare_results("上海海昌海洋公园门票购买以后是否可以退票退款？")
+    print(result)
