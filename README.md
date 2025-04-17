@@ -23,6 +23,17 @@
 7. 语音输出： 使用粤语语音回答用户提出的问题。
 
 
+## 如何运行
+```
+python main.py
+```
+
+### 如果想测试某个具体模块
+```
+# 以ASR功能为例
+python -m src.models.asr
+```
+
 ## 运行结果
 - 全部放在根目录的 `image` 文件夹下。
 
@@ -96,6 +107,15 @@ conda install -c conda-forge pyaudio
 ## 如果遇到依赖冲突（头文件不存在）：
 sudo apt-get install portaudio19-dev python3-dev
 pip install pyaudio
+```
+
+
+### 粤语数据集下载
+```
+# safecantonese/cantomap
+
+cd src/data
+huggingface-cli download --resume-download --repo-type dataset safecantonese/cantomap --local-dir cantomap
 ```
 
 

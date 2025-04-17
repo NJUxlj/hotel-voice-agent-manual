@@ -8,7 +8,14 @@ from typing import List, Dict, Any, Optional, Tuple
 import docx.text
 import docx.text.paragraph  
 
-from src.configs.config import SHANGHAI_TOURISM_DOCX
+import soundfile as sf  
+from datasets import load_dataset  
+import random 
+
+from src.configs.config import (
+    SHANGHAI_TOURISM_DOCX,
+    CANTONESE_DATA_PATH
+)
 
 
 def is_question(text: str) -> bool:  
@@ -294,6 +301,46 @@ class QaDataGenerator:
 
 
 
+class CantoneseVoiceDataGenerator:
+    '''
+    加载数据时有报错，暂时无法解决。
+    '''
+    
+    def __init__(self, data_path, subset_name = "yue"):
+        self.data_path = data_path  # safecantonese/cantomap
+        self.dataset = load_dataset("safecantonese/cantomap", "yue", split="train")  
+        print(f"数据集大小: {len(self.dataset)} 条音频")  
+    
+        self.output_dir = "src/data/cantonese_audio_samples"  
+        os.makedirs(self.output_dir, exist_ok=True) 
+        
+    
+    def sample_k_data(self, k=5):
+        # 随机选择几个样本并保存为WAV文件  
+        num_samples = k 
+        random_indices = random.sample(range(len(self.dataset)), num_samples)  
+
+        for i, idx in enumerate(random_indices):  
+            sample = self.dataset[idx]  
+            
+            # 获取音频数据  
+            audio_array = sample["audio"]["array"]  
+            sampling_rate = sample["audio"]["sampling_rate"]  
+            
+            # 保存为WAV文件  
+            output_path = os.path.join(self.output_dir, f"cantonese_sample_{i+1}.wav")  
+            sf.write(output_path, audio_array, sampling_rate)  
+            
+            # 输出样本信息  
+            print(f"已保存样本 {i+1} 到 {self.output_path}")  
+            print(f"对应的文本: {sample['sentence']}")  
+            print(f"采样率: {sampling_rate} Hz")  
+            print(f"音频长度: {len(audio_array)/sampling_rate:.2f} 秒")  
+            print("-" * 50)  
+
+        print(f"共保存了 {num_samples} 个音频样本到 {self.output_dir} 目录") 
+
+    
 
 if __name__ == "__main__":  
     
@@ -301,7 +348,8 @@ if __name__ == "__main__":
     python -m src.data.load
     '''
 
-    generator = QaDataGenerator(SHANGHAI_TOURISM_DOCX)
+    # generator = QaDataGenerator(SHANGHAI_TOURISM_DOCX)
     
     
-    print(generator.get_next_qa_pair())
+    # print(generator.get_next_qa_pair())
+    

@@ -39,7 +39,7 @@ class AliyunASR:
     def __init__(self):  
         self.callback = ASRCallback()  
         
-    def recognize_from_microphone(self, duration=5):  
+    def recognize_from_microphone(self, duration=5)->str:  
         """从麦克风录制并识别语音"""  
         # 录制音频  
         audio_data = self._record_audio(duration)  
@@ -55,7 +55,7 @@ class AliyunASR:
         # 识别音频文件  
         return self.recognize_from_file(temp_file)  
     
-    def recognize_from_file(self, file_path):  
+    def recognize_from_file(self, file_path)->str:  
         """识别语音文件"""  
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"音频文件不存在: {file_path}")

@@ -37,6 +37,9 @@ from src.models.chat_pdf import ChatPDF
 
 from src.data.load import QaDataGenerator
 
+from src.query_match.bm25 import BM25
+from src.query_match.l2_distance import L2Distance
+
 # 设置API密钥（请替换为您的实际密钥）  
 ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY", "your_key")  # 替换为您的智谱API密钥  
 SERPAPI_API_KEY = os.environ.get("SERPAPI_API_KEY", "your_key")  # 替换为您的SerpAPI密钥  
@@ -60,10 +63,18 @@ os.makedirs(DATA_DIR, exist_ok=True)
 class SimpleVectorDB:  
     """简单的向量数据库实现，用于存储文档嵌入和检索"""  
     
-    def __init__(self, file_path=VECTOR_DB_PATH, docx_path = None):  
-        self.file_path = file_path  
+    def __init__(
+            self, 
+            file_path=VECTOR_DB_PATH, 
+            docx_path = None, 
+            similariity_calc_method:Literal["cosine", "l2_distance","bm25"] = "cosine",
         
+        ):  
+        self.file_path = file_path  
+        self.similarity_calc_method = similariity_calc_method
         self.chat_pdf = ChatPDF(model_type="tongyi")
+        
+        self.bm25_corpus = None # 一个用于存储 （文档索引，文档）对的字典
         
         if docx_path is not None:
             self.docx_generator = QaDataGenerator(docx_path)
@@ -71,6 +82,24 @@ class SimpleVectorDB:
         self.embedding_model = ZhipuEmbedding()
         self.db = self._load_db()  
         
+        if self.db["documents"] is not None:
+            if self.bm25_corpus is None:
+                self._create_bm25_corpus()
+                self._create_bm25_model()
+    
+    
+    def _create_bm25_model(self):
+        self.bm25=BM25(self.bm25_corpus)
+        print("BM25模型创建完成~~~")
+    
+    def _create_bm25_corpus(self):
+        corpus = {}
+        
+        for i, doc in enumerate(self.db["documents"]):
+            corpus[i] = doc
+        
+        self.bm25_corpus = corpus
+        print("BM25 文档索引库构建完成~~~")
         
     def _convert_pdf_to_db(self, file_path):
         """将PDF文件内容转换为向量数据库
@@ -152,16 +181,30 @@ class SimpleVectorDB:
         self.db["embeddings"].append(embedding)  
         self.save_db()  
     
-    def search(self, query_embedding: List[float], top_k: int = 3) -> List[Tuple[str, float]]:  
+    def search(self, query:str, query_embedding: List[float], top_k: int = 3) -> List[Tuple[str, float]]:  
         """根据查询嵌入搜索最相似的文档"""  
         if not self.db["embeddings"]:  
             return []  
         
+        
         # 计算余弦相似度  
-        similarities = []  
-        for doc_embedding in self.db["embeddings"]:  
-            similarity = self._cosine_similarity(query_embedding, doc_embedding)  
-            similarities.append(similarity)  
+        similarities = [] 
+        
+        if self.similarity_calc_method == "cosine":  
+            for doc_embedding in self.db["embeddings"]:
+                similarity = self._cosine_similarity(query_embedding, doc_embedding) 
+                similarities.append(similarity)  
+                
+        elif self.similarity_calc_method == "bm25":
+            for doc_idx, doc in enumerate(self.db["documents"]):
+                similarity = self._bm25_similarity(query, doc_idx) 
+                similarities.append(similarity)  
+                
+        elif self.similarity_calc_method == "l2_distance":
+            for doc_embedding in self.db["embeddings"]:
+                similarity = self._l2_distance_similarity(query_embedding, doc_embedding) 
+                similarities.append(similarity)  
+            
         
         # 获取top-k最相似的文档  
         top_indices = np.argsort(similarities)[-top_k:][::-1]  # argsort返回升序排序后的下标数组
@@ -174,7 +217,12 @@ class SimpleVectorDB:
         vec2 = np.array(vec2).reshape(-1,)  
         return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2)) 
     
-
+    def _bm25_similarity(self, query:str, doc_idx:int):
+        score = self.bm25.get_score(query, doc_idx)[1]
+        return score
+    
+    def _l2_distance_similarity(self, vec1: List[float], vec2: List[float])-> float: 
+        pass
 
 
 class BaseAgent:  
@@ -192,10 +240,15 @@ class BaseAgent:
 class RAGAgent(BaseAgent):  
     """负责检索增强生成的执行智能体"""  
     
-    def __init__(self, name: str = "RAG智能体", file_type:Literal["pdf","docx"]="pdf"):  
+    def __init__(
+        self, 
+        name: str = "RAG智能体", 
+        file_type:Literal["pdf","docx"]="pdf",
+        similariity_calc_method:Literal["cosine", "l2_distance","bm25"] = "bm25"
+        ):  
         super().__init__(name)  
         self.file_type = file_type
-        self.vector_db = SimpleVectorDB()  
+        self.vector_db = SimpleVectorDB(similariity_calc_method=similariity_calc_method)  
         self.embedding_model = ZhipuEmbedding(api_key=ZHIPU_API_KEY)
         self._init_data()  
         
@@ -266,6 +319,10 @@ class RAGAgent(BaseAgent):
         else:
             raise ValueError("file_type must be 'pdf' or 'docx'")
         
+        if self.vector_db.similarity_calc_method == "bm25" and self.vector_db.bm25_corpus is None:
+            self.vector_db._create_bm25_corpus()
+            self.vector_db._create_bm25_model()
+        
         print("上海旅游知识库初始化完成 ~~~")
     
     def _get_embedding(self, text: str) -> List[float]:  
@@ -289,7 +346,7 @@ class RAGAgent(BaseAgent):
             query_embedding = self._get_embedding(query)  
             
             # 检索相关文档  
-            search_results = self.vector_db.search(query_embedding, top_k=3)  
+            search_results = self.vector_db.search(query, query_embedding, top_k=3)  
             
             # 构建上下文  
             context_docs = [doc for doc, score in search_results]  
@@ -789,23 +846,18 @@ if __name__ == "__main__":
     
     
     
-    # rag_agent = RAGAgent()
+    rag_agent = RAGAgent()
     
-    # # result = rag_agent.run(query = "上海海昌海洋公园门票购买以后是否可以退票退款？")
+    result = rag_agent.run(query = "上海海昌海洋公园门票购买以后是否可以退票退款？")
     # result = rag_agent.compare_results("上海海昌海洋公园门票购买以后是否可以退票退款？")
-    # print(result)
-    
-    
-    
-    search_agent = SearchAgent()
-    
-    # result = search_agent.run(query = "上海海昌海洋公园门票购买以后是否可以退票退款？")
-
-    # print(result)
-
-
-    agent = CoordinatorAgent()
-    
-    result = agent.run(query = "上海海昌海洋公园门票购买以后是否可以退票退款？")
-    
     print(result)
+    
+    
+    
+    # search_agent = SearchAgent()
+
+    # agent = CoordinatorAgent()
+    
+    # result = agent.run(query = "上海海昌海洋公园门票购买以后是否可以退票退款？")
+    
+    # print(result)

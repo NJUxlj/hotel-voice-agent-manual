@@ -4,7 +4,7 @@ import os
 DATA_PATH = ""
 
 
-
+CANTONESE_DATA_PATH = "src/data/cantomap"
 MODEL_PATH = ""
 
 
