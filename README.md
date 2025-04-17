@@ -2,7 +2,7 @@
 
 
 
-
+## 注意：所有运行结果都放在`image`文件夹中
 
 
 
@@ -83,4 +83,43 @@ source ~/.bashrc
 ### 下载Docx插件
 ```
 pip install python-docx
+```
+
+
+### 语音数据处理
+```
+pip install pyaudio
+
+# 或者
+conda install -c conda-forge pyaudio
+
+## 如果遇到依赖冲突（头文件不存在）：
+sudo apt-get install portaudio19-dev python3-dev
+pip install pyaudio
+```
+
+
+### 配置aliyun-ASR环境
+- API-KEY：自行前往阿里云白炼平台获取
+- aliyun-asr 地址： https://www.aliyun.com/sswb/887628.html
+- 必须开通 ASR服务
+```
+vim ~/.bashrc
+export DASHSCOPE_API_KEY="your_api_key_here"
+source ~/.bashrc
+```
+
+### 配置腾讯云TTS环境
+- 地址：https://cloud.tencent.com/product/tts
+- api管理：https://console.cloud.tencent.com/cam/capi
+```
+pip install tencentcloud-sdk-python
+
+# 可选 【项目中用的是aliyun的】
+pip install tencentcloud-sdk-python-tts
+
+vim ~/.bashrc
+export TENCENT_SECRET_ID="your_tencent_secret_id"  # 腾讯云SecretId  
+export TENCENT_SECRET_KEY="your_tencent_secret_key"  # 腾讯云SecretKey 
+source ~/.bashrc
 ```

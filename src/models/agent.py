@@ -39,7 +39,7 @@ from src.data.load import QaDataGenerator
 
 # 设置API密钥（请替换为您的实际密钥）  
 ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY", "your_key")  # 替换为您的智谱API密钥  
-SERPAPI_API_KEY = "YOUR_SERPAPI_API_KEY"  # 替换为您的SerpAPI密钥  
+SERPAPI_API_KEY = os.environ.get("SERPAPI_API_KEY", "your_key")  # 替换为您的SerpAPI密钥  
 
 # 初始化智谱AI客户端  
 client = ZhipuAI(api_key=ZHIPU_API_KEY)  
@@ -550,6 +550,9 @@ class SearchAgent(BaseAgent):
         super().__init__(name)  
         self.api_key = SERPAPI_API_KEY  
         self.client = serpapi.Client(api_key=SERPAPI_API_KEY)
+        
+        self.max_retries = 3  # 最大重试次数
+        self.retry_delay = 2  # 重试延迟(秒)
     
     def run(self, query: str, context: Dict[str, Any] = None) -> Dict[str, Any]:  
         """执行搜索并返回结果"""  
@@ -562,9 +565,9 @@ class SearchAgent(BaseAgent):
                 "q": search_query,  
                 "api_key": self.api_key,  
                 "engine": "google",  
-                "google_domain": "google.com.hk",  
-                "gl": "cn",  
-                "hl": "zh-cn",  
+                "google_domain": "google.com",  
+                "gl": "us",    # google location
+                "hl": "zh-cn",   # Host Language
                 "num": 5  # 返回5条结果  
             }  
             
@@ -786,8 +789,23 @@ if __name__ == "__main__":
     
     
     
-    rag_agent = RAGAgent()
+    # rag_agent = RAGAgent()
     
-    # result = rag_agent.run(query = "上海海昌海洋公园门票购买以后是否可以退票退款？")
-    result = rag_agent.compare_results("上海海昌海洋公园门票购买以后是否可以退票退款？")
+    # # result = rag_agent.run(query = "上海海昌海洋公园门票购买以后是否可以退票退款？")
+    # result = rag_agent.compare_results("上海海昌海洋公园门票购买以后是否可以退票退款？")
+    # print(result)
+    
+    
+    
+    search_agent = SearchAgent()
+    
+    # result = search_agent.run(query = "上海海昌海洋公园门票购买以后是否可以退票退款？")
+
+    # print(result)
+
+
+    agent = CoordinatorAgent()
+    
+    result = agent.run(query = "上海海昌海洋公园门票购买以后是否可以退票退款？")
+    
     print(result)
