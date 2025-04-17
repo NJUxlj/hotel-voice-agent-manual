@@ -308,7 +308,8 @@ class CantoneseVoiceDataGenerator:
     
     def __init__(self, data_path, subset_name = "yue"):
         self.data_path = data_path  # safecantonese/cantomap
-        self.dataset = load_dataset("safecantonese/cantomap", "yue", split="train")  
+        self.dataset = load_dataset(data_path, "yue", split="train") 
+        # self.dataset = load_dataset("mozilla-foundation/common_voice_16_0", "yue", trust_remote_code=True)  
         print(f"数据集大小: {len(self.dataset)} 条音频")  
     
         self.output_dir = "src/data/cantonese_audio_samples"  
@@ -352,4 +353,8 @@ if __name__ == "__main__":
     
     
     # print(generator.get_next_qa_pair())
+    
+    dg = CantoneseVoiceDataGenerator(CANTONESE_DATA_PATH+"/audio")
+    
+    dg.sample_k_data()
     

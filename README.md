@@ -4,7 +4,8 @@
 
 ## 注意：所有运行结果都放在`image`文件夹中
 
-
+- 音频输入文件放在 `src/data/录音.wav`
+- 音频输出文件放在 `src/data/output.mp3`
 
 ## 项目流程
 
@@ -36,6 +37,7 @@ python -m src.models.asr
 
 ## 运行结果
 - 全部放在根目录的 `image` 文件夹下。
+
 
 
 
