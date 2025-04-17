@@ -31,7 +31,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from src.models.model import ZhipuEmbedding
 
+from src.models.chat_pdf import ChatPDF
 
+from src.data.load import QaDataGenerator
 
 # 设置API密钥（请替换为您的实际密钥）  
 ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY", "your_key")  # 替换为您的智谱API密钥  
@@ -40,10 +42,14 @@ SERPAPI_API_KEY = "YOUR_SERPAPI_API_KEY"  # 替换为您的SerpAPI密钥
 # 初始化智谱AI客户端  
 client = ZhipuAI(api_key=ZHIPU_API_KEY)  
 
-# 文件路径定义  
-DATA_DIR = "data"  
-VECTOR_DB_PATH = os.path.join(DATA_DIR, "vector_db.json")  
-SHANGHAI_TOURISM_DOCS = os.path.join(DATA_DIR, "shanghai_tourism_docs.txt")  
+
+
+from src.configs.config import (
+    DATA_DIR,
+    VECTOR_DB_PATH,
+    SHANGHAI_TOURISM_DOCX,
+    SHANGHAI_TOURISM_PDF
+)
 
 # 确保数据目录存在  
 os.makedirs(DATA_DIR, exist_ok=True)  
@@ -52,9 +58,74 @@ os.makedirs(DATA_DIR, exist_ok=True)
 class SimpleVectorDB:  
     """简单的向量数据库实现，用于存储文档嵌入和检索"""  
     
-    def __init__(self, file_path=VECTOR_DB_PATH):  
+    def __init__(self, file_path=VECTOR_DB_PATH, docx_path = None):  
         self.file_path = file_path  
+        
+        self.chat_pdf = ChatPDF(model_type="tongyi")
+        
+        if docx_path is not None:
+            self.docx_generator = QaDataGenerator(docx_path)
+        
+        self.embedding_model = ZhipuEmbedding()
         self.db = self._load_db()  
+        
+        
+    def _convert_pdf_to_db(self, file_path):
+        """将PDF文件内容转换为向量数据库
+        
+        参数:
+            file_path: PDF文件路径
+            
+        返回:
+            bool: 转换是否成功
+        """
+        if not os.path.exists(file_path):
+            print(f"PDF文件不存在: {file_path}")
+            return False
+            
+        try:
+            # 使用ChatPDF提取文本内容
+            chunks:List[Document] = self.chat_pdf.ingest(file_path)
+            
+            chunks:List[str] = [doc.page_content for doc in chunks]
+        
+            
+            # 将每个片段添加到向量数据库
+            for chunk in chunks:
+                embedding = self.embedding_model.get_single_embedding(chunk).tolist()
+                self.add_document(chunk, embedding)
+                
+            print(f"成功将PDF文件 {file_path} 内容添加到向量数据库")
+            return True
+            
+        except Exception as e:
+            print(f"PDF转换失败: {e}")
+            return False
+    
+    def _convert_docx_to_db(self, file_path):
+        
+        if not os.path.exists(file_path):
+            print(f"Docx文件不存在: {file_path}")
+            return False
+        
+        try:
+            self.docx_generator = QaDataGenerator(file_path)
+            
+            qa_pairs = self.docx_generator.get_all_qa_pairs()
+            
+            chunks = [f"问题: {qa[0]}\n答案: {qa[1]}" for qa in qa_pairs]
+            
+            # 将每个片段添加到向量数据库
+            for chunk in chunks:
+                embedding = self.embedding_model.get_single_embedding(chunk).tolist()
+                self.add_document(chunk, embedding)
+                
+            print(f"成功将PDF文件 {file_path} 内容添加到向量数据库")
+            return True
+        
+        except Exception as e:
+            print(f"Docx转换失败: {e}")
+            return False
     
     def _load_db(self):  
         """从文件加载向量数据库"""  
@@ -91,7 +162,7 @@ class SimpleVectorDB:
             similarities.append(similarity)  
         
         # 获取top-k最相似的文档  
-        top_indices = np.argsort(similarities)[-top_k:][::-1]  
+        top_indices = np.argsort(similarities)[-top_k:][::-1]  # argsort返回升序排序后的下标数组
         results = [(self.db["documents"][i], similarities[i]) for i in top_indices]  
         return results  
     
@@ -99,10 +170,11 @@ class SimpleVectorDB:
         """计算两个向量之间的余弦相似度"""  
         vec1 = np.array(vec1)  
         vec2 = np.array(vec2)  
-        return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))  
+        return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2)) 
+    
 
 
-# 执行Agent基类  
+
 class BaseAgent:  
     """智能体基类，提供基本方法"""  
     
@@ -145,7 +217,7 @@ class RAGAgent(BaseAgent):
     def _populate_knowledge_base(self):  
         """向知识库中添加上海旅游知识"""  
         # 检查是否存在上海旅游文档文件  
-        if not os.path.exists(SHANGHAI_TOURISM_DOCS):  
+        if not os.path.exists(SHANGHAI_TOURISM_DOCX):  
             # 如果不存在,创建一些示例数据  
             sample_data = [
                 "上海，简称\"沪\"，是中国的一个直辖市，国家中心城市，超大城市，也是国际经济、金融、贸易、航运、科技创新中心。",  
@@ -170,7 +242,7 @@ class RAGAgent(BaseAgent):
                 "新天地是上海的时尚休闲街区，由旧时上海的石库门建筑改造而成。"  
             ]  
             
-            with open(SHANGHAI_TOURISM_DOCS, 'w', encoding='utf-8') as f:  
+            with open(SHANGHAI_TOURISM_DOCX, 'w', encoding='utf-8') as f:  
                 f.write('\n'.join(sample_data))  
             
             # 将样本数据加入向量数据库  
@@ -179,7 +251,7 @@ class RAGAgent(BaseAgent):
                 self.vector_db.add_document(doc, embedding)  
         else:  
             # 从文件加载数据  
-            with open(SHANGHAI_TOURISM_DOCS, 'r', encoding='utf-8') as f:  
+            with open(SHANGHAI_TOURISM_DOCX, 'r', encoding='utf-8') as f:  
                 lines = f.readlines()  
                 
             # 检查向量数据库是否为空  
@@ -673,6 +745,11 @@ if __name__ == "__main__":
     # main()  
     
     
-    rag_agent = RAGAgent()
+    # rag_agent = RAGAgent()
     
-    rag_agent._get_embedding("哈哈哈")
+    # rag_agent._get_embedding("哈哈哈")
+    
+    
+    vector_db = SimpleVectorDB()
+    
+    vector_db._convert_pdf_to_db(SHANGHAI_TOURISM_PDF)

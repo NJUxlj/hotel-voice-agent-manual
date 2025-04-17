@@ -130,7 +130,7 @@ class ChatPDF:
                       | StrOutputParser()
                       )
         
-    
+        return chunks
     
     def ask(self, query:str):
         if not self.chain:

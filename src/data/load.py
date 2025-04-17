@@ -3,7 +3,18 @@ import re
 import json  
 import docx  
 from docx.table import Table  
-from typing import List, Dict, Any, Optional, Tuple  
+from typing import List, Dict, Any, Optional, Tuple
+
+import docx.text
+import docx.text.paragraph  
+
+from src.configs.config import SHANGHAI_TOURISM_DOCX
+
+
+def is_question(text: str) -> bool:  
+    """判断一段是否为问题"""  
+    return bool(re.match(r'^(\d+)[、\.．]{1}', text)) or bool(re.match(r'^\d+', text))  
+
 
 
 def extract_table_content(table: Table) -> str:  
@@ -66,6 +77,19 @@ def extract_qa_from_docx(docx_path: str) -> List[Dict[str, str]]:
     current_answer = []  
     in_table_answer = False  
     
+    
+    def save_qa():  
+        nonlocal current_question, current_answer  
+        if current_question and current_answer:  
+            question = re.sub(r'^(\d+)[、\.．]?', '', current_question).strip()  
+            answer_text = "\n".join([l for l in current_answer if l.strip()])  
+            qa_pairs.append({  
+                'question': question,  
+                'answer': answer_text  
+            })  
+        current_question = ''  
+        current_answer = []  
+    
     # 遍历文档中的所有元素  
     for element in doc.element.body:  
         # 处理段落  
@@ -78,11 +102,11 @@ def extract_qa_from_docx(docx_path: str) -> List[Dict[str, str]]:
                 continue  
             
             # 检查是否是问题（匹配数字+、+文本）  
-            if re.match(r'^\d+、', text):  
+            if is_question(text):  
                 # 如果已经有问题和答案，保存之前的问答对  
                 if current_question and (current_answer or in_table_answer):  
                     # 清理问题文本（移除序号）  
-                    clean_question = re.sub(r'^\d+、', '', current_question).strip()  
+                    clean_question = re.sub(r'^(\d+)[、\.．]{1}', '', current_question).strip()  
                     
                     # 合并答案文本  
                     answer_text = "\n".join(current_answer).strip()  
@@ -99,14 +123,16 @@ def extract_qa_from_docx(docx_path: str) -> List[Dict[str, str]]:
                 in_table_answer = False  
             
             # 检查是否是"答案："格式的答案  
-            elif text.startswith('答案：'):  
+            elif text.startswith('答案：') or (current_question and not re.match(r'^(\d+)[、\.．]{1}', text)) or ( current_question and re.match(r'^[①-⑩]', text)):  
                 # 提取答案内容  
-                answer_text = text[3:].strip()  # 移除"答案："前缀  
-                current_answer.append(answer_text)  
+                answer_text = text
+                if answer_text.startswith('答案：'):
+                    answer_text = text[3:].strip()  # 移除"答案："前缀  
+                current_answer.append(answer_text.strip())  
             
-            # 否则，如果已有问题，认为是答案的一部分  
-            elif current_question:  
-                current_answer.append(text)  
+            # # 否则，如果已有问题，认为是答案的一部分  
+            # elif current_question:  
+            #     current_answer.append(text)  
         
         # 处理表格  
         elif element.tag.endswith('tbl'):  
@@ -121,7 +147,7 @@ def extract_qa_from_docx(docx_path: str) -> List[Dict[str, str]]:
     
     # 处理最后一个问答对  
     if current_question and (current_answer or in_table_answer):  
-        clean_question = re.sub(r'^\d+、', '', current_question).strip()  
+        clean_question = re.sub(r'^(\d+)[、\.．]{1}', '', current_question).strip()  
         answer_text = "\n".join(current_answer).strip()  
         
         qa_pairs.append({  
@@ -197,6 +223,8 @@ def cleanup_answer(answer: str) -> str:
     return '\n'.join(cleaned_lines)  
 
 
+
+
 def post_process_qa_pairs(qa_pairs: List[Dict[str, str]]) -> List[Dict[str, str]]:  
     """  
     对提取的问答对进行后处理，优化格式和内容  
@@ -225,27 +253,55 @@ def post_process_qa_pairs(qa_pairs: List[Dict[str, str]]) -> List[Dict[str, str]
     return processed_pairs  
 
 
-# 命令行接口  
+
+
+
+class QaDataGenerator:
+    def __init__(self, docx_path: str):
+        
+        self.docx_path = docx_path
+        self.qa_pairs = []
+        self.current_index = 0
+        
+        self._load()
+        
+    def _load(self):
+        self.qa_pairs = process_docx_to_json(self.docx_path)
+        self.current_index = 0
+        print(f"从 '{self.docx_path}' 中加载了 {len(self.qa_pairs)} 个问答对")
+
+    def get_next_qa_pair(self) -> Tuple[str, str]:
+        if self.current_index >= len(self.qa_pairs):
+            self.current_index = 0
+            print("已循环所有问答对，重新开始")
+            self._load()  # 重新加载
+
+        qa_pair = self.qa_pairs[self.current_index]
+        self.current_index += 1
+        return qa_pair["question"], qa_pair["answer"]
+    
+    def get_all_qa_pairs(self) -> List[Dict[str, str]]:
+        return self.qa_pairs
+    
+    def __len__(self):
+        return len(self.qa_pairs)
+    
+    
+    def __getitem__(self, idx):
+        return self.qa_pairs[idx]
+
+
+
+
+
+
 if __name__ == "__main__":  
-    import argparse  
     
-    parser = argparse.ArgumentParser(description='从Word文档提取问答对')  
-    parser.add_argument('input_file', help='输入的Word文档(.docx)路径')  
-    parser.add_argument('-o', '--output', help='输出的JSON文件路径', default=None)  
-    parser.add_argument('--debug', action='store_true', help='启用调试模式')  
+    '''
+    python -m src.data.load
+    '''
+
+    generator = QaDataGenerator(SHANGHAI_TOURISM_DOCX)
     
-    args = parser.parse_args()  
     
-    # 启用调试模式  
-    if args.debug:  
-        import logging  
-        logging.basicConfig(level=logging.DEBUG)  
-    
-    # 处理文档  
-    qa_pairs = process_docx_to_json(args.input_file, args.output)  
-    
-    # 打印第一个问答对作为示例  
-    if qa_pairs:  
-        print("\n提取示例:")  
-        print(f"问题: {qa_pairs[0]['question']}")  
-        print(f"答案: {qa_pairs[0]['answer'][:200]}..." if len(qa_pairs[0]['answer']) > 200 else f"答案: {qa_pairs[0]['answer']}")  
+    print(generator.get_next_qa_pair())
