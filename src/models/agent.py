@@ -627,7 +627,7 @@ class CoordinatorAgent(BaseAgent):
         
         # 调用智谱AI做决策  
         response = client.chat.completions.create(  
-            model="glm-4",  
+            model="glm-4-fast",  
             messages=[  
                 {"role": "user", "content": prompt}  
             ]  
@@ -699,7 +699,7 @@ class CoordinatorAgent(BaseAgent):
             }  
 
 
-# 主交互循环  
+ 
 def main():  
     """主函数，处理用户输入并展示智能体回答"""  
     print("欢迎使用上海旅游助手！请输入您的问题，输入'退出'结束对话。")  
