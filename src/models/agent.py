@@ -5,7 +5,8 @@ import numpy as np
 from typing import Dict, List, Any, Optional, Tuple  
 import zhipuai  
 from zhipuai import ZhipuAI  
-from serpapi import GoogleSearch  
+# from serpapi.google_search import GoogleSearch 
+import serpapi
 from datetime import datetime  
 
 import tempfile  
@@ -24,6 +25,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough  
 from langchain_core.prompts import ChatPromptTemplate  
 from langchain_community.chat_models.zhipuai import ChatZhipuAI
+# from langchain.llms import ZhipuAIEmbeddings
 from langchain_community.embeddings import ZhipuAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter  
 
@@ -528,6 +530,7 @@ class SearchAgent(BaseAgent):
     def __init__(self, name: str = "搜索智能体"):  
         super().__init__(name)  
         self.api_key = SERPAPI_API_KEY  
+        self.client = serpapi.Client(api_key=SERPAPI_API_KEY)
     
     def run(self, query: str, context: Dict[str, Any] = None) -> Dict[str, Any]:  
         """执行搜索并返回结果"""  
@@ -546,8 +549,7 @@ class SearchAgent(BaseAgent):
                 "num": 5  # 返回5条结果  
             }  
             
-            search = GoogleSearch(search_params)  
-            results = search.get_dict()  
+            results = self.client.search(search_params)
             
             # 提取搜索结果  
             organic_results = results.get("organic_results", [])  
@@ -573,7 +575,7 @@ class SearchAgent(BaseAgent):
                 
                 # 调用智谱AI生成回答  
                 response = client.chat.completions.create(  
-                    model="glm-4",  
+                    model="glm-4-fast",  
                     messages=[  
                         {"role": "user", "content": prompt}  
                     ]  
@@ -592,17 +594,24 @@ class SearchAgent(BaseAgent):
                     "agent": self.name,  
                     "answer": "抱歉，我没有找到相关的搜索结果。",  
                     "query": query  
-                }  
+                }
+        except serpapi.SerpApiError as e:
+            logger.error(f"SerpAPI服务错误: {e}")
+            return {  
+                "agent": self.name,  
+                "answer": "抱歉，搜索服务暂时不可用，请稍后再试。",  
+                "query": query  
+            }
         except Exception as e:  
             print(f"搜索执行失败: {e}")  
             return {  
                 "agent": self.name,  
-                "answer": f"抱歉，我在搜索时遇到了问题: {str(e)}",  
+                "answer": f"抱歉，我在处理您的请求时遇到了问题: {str(e)}",  
                 "query": query  
             }  
 
 
-# 整合Agent  
+# 整合所有子agent的总Agent  
 class CoordinatorAgent(BaseAgent):  
     """协调多个执行智能体的整合智能体"""  
     

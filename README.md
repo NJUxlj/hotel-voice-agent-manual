@@ -25,3 +25,62 @@
 
 ## 运行结果
 - 全部放在根目录的 `image` 文件夹下。
+
+
+
+
+
+## 项目配置
+
+### 更新langchain
+```
+pip install -U langchain
+```
+
+### ZhipuAIEmbedding依赖下载
+```
+pip install faiss-cpu -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+pip install fastembed
+```
+
+### 环境变量设置
+- `ZHIPU_API_KEY`
+```
+export ZHIPU_API_KEY="您的实际API密钥"
+```
+
+
+- `DASHSCOPE_API_KEY`  [Tongyi API Key]
+```
+pip install dashscope
+export DASHSCOPE_API_KEY="your_api_key_here"
+
+# 如何使用：
+
+def __init__(self, model_type="tongyi", dashscope_api_key=None):
+    if model_type == "tongyi":
+        # 直接传入 API 密钥
+        self.model = Tongyi(dashscope_api_key="your_api_key_here")
+    # ... 其他代码 ...
+```
+- `SERPAPI_API_KEY` # SerpAPI API Key
+```
+export SERPAPI_API_KEY="您的实际API密钥"
+```
+
+- 或者修改全局变量：
+```
+vim ~/.bashrc
+# 在文件末尾添加以下内容
+export ZHIPU_API_KEY="您的实际API密钥"
+export DASHSCOPE_API_KEY="your_api_key_here"
+export SERPAPI_API_KEY="您的实际API密钥"
+# 保存并退出文件
+source ~/.bashrc
+```
+
+### 下载Docx插件
+```
+pip install python-docx
+```
